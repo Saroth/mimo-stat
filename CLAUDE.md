@@ -36,10 +36,12 @@ Recent usage:
   - 260608: 152.28M, 0.3095%, hit:15.42M, mis:259.8K, out:59.6K
   - 260607: 2.08M, 0.0042%, hit:512, mis:20.7K, out:25
 ```
+根据官网[说明](https://platform.xiaomimimo.com/docs/zh-CN/price/tokenplan/subscription)，
+MiMo有夜间 0.8 倍消耗，所以Recent的每日消耗Token换算的Credits可能高于实际用量.
 
 **Tmux 格式输出:**
 ```
-[MiMo: ￥31.61 TP:0.2541% Rec[0608:0.3095% 0607:0.0042%]]
+MiMo ￥31.61 Cr:0.2746% 📊[0608:0.3300% 0607:0.0042%]
 ```
 
 ## API

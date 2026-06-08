@@ -274,7 +274,7 @@ def format_tmux(detail: dict, usage: dict, recent: list[dict] | None = None, bal
 
     # 没有订阅
     if not plan_code:
-        parts.append("TP:-")
+        parts.append("Cr:-")
         return "[" + " ".join(parts) + "]"
 
     # 套餐使用量
@@ -285,7 +285,7 @@ def format_tmux(detail: dict, usage: dict, recent: list[dict] | None = None, bal
     month_limit = plan_item["limit"] if plan_item else 0
     month_percent = (month_used / month_limit * 100) if month_limit > 0 else 0
 
-    parts.append(f"TP:{month_percent:.4f}%")
+    parts.append(f"Cr:{month_percent:.4f}%")
 
     # 最近 3 天每日消耗
     if recent:
@@ -295,7 +295,7 @@ def format_tmux(detail: dict, usage: dict, recent: list[dict] | None = None, bal
             recent_percent = (credits_used / month_limit * 100) if month_limit > 0 else 0
             date_short = r["date"][5:].replace("-", "")  # MMDD
             rec_parts.append(f"{date_short}:{recent_percent:.4f}%")
-        parts.append("Rec[" + " ".join(rec_parts) + "]")
+        parts.append("📊[" + " ".join(rec_parts) + "]")
 
     return " ".join(parts)
 
