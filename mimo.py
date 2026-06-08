@@ -263,7 +263,7 @@ def format_tmux(detail: dict, usage: dict, recent: list[dict] | None = None, bal
 
     plan_code = plan.get("planCode", "")
 
-    parts = ["MiMo:"]
+    parts = ["MiMo"]
 
     # 余额
     balance_amount = 0.0
@@ -297,7 +297,7 @@ def format_tmux(detail: dict, usage: dict, recent: list[dict] | None = None, bal
             rec_parts.append(f"{date_short}:{recent_percent:.4f}%")
         parts.append("Rec[" + " ".join(rec_parts) + "]")
 
-    return "[" + " ".join(parts) + "]"
+    return " ".join(parts)
 
 
 def main():
