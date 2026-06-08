@@ -325,13 +325,13 @@ def main():
         print(fmt(detail, usage, recent, balance))
     except requests.HTTPError as e:
         if args.tmux:
-            print(f"[MiMo: response {e.response.status_code}]")
+            print(f"MiMo: response {e.response.status_code}")
         else:
             print(f"请求失败: {e}", file=sys.stderr)
         sys.exit(1)
     except requests.RequestException as e:
         if args.tmux:
-            print("[MiMo: request error]")
+            print("MiMo: request error")
         else:
             print(f"请求失败: {e}", file=sys.stderr)
         sys.exit(1)
