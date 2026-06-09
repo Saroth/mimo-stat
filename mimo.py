@@ -15,6 +15,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 import requests
 
@@ -72,7 +73,11 @@ def api_get(config: dict, path: str) -> dict:
     url = f"{config['base_url']}/api/v1{path}"
     headers = {
         "Cookie": config["cookie"],
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Referer": config["base_url"] + "/",
+        "Origin": config["base_url"],
     }
     resp = requests.get(url, headers=headers, timeout=10)
     resp.raise_for_status()
@@ -111,11 +116,16 @@ def api_post(config: dict, path: str, data: dict) -> dict:
     ph = get_ph_from_cookie(config["cookie"])
     url = f"{config['base_url']}/api/v1{path}"
     if ph:
-        url += f"?api-platform_ph={ph}"
+        # 对 ph 值进行 URL 编码，特别是 + 号需要编码为 %2B
+        url += f"?api-platform_ph={quote(ph, safe='')}"
     headers = {
         "Cookie": config["cookie"],
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         "Content-Type": "application/json",
+        "Referer": config["base_url"] + "/",
+        "Origin": config["base_url"],
     }
     resp = requests.post(url, headers=headers, json=data, timeout=10)
     resp.raise_for_status()
