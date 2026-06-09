@@ -156,15 +156,12 @@ def convert_to_credits(record: dict) -> float:
 def get_recent_days_usage(config: dict, days: int = 3) -> list[dict]:
     """获取最近 N 天的使用量（已转换为 Credit）。
 
-    MiMo 每日数据在次日 7:00 UTC 完成校对，
-    7:00 之前的消耗记在前一天。
+    MiMo 按北京时间 (UTC+8) 划分每日数据，
+    API 返回的 date 字段已按北京时间校对。
     """
-    utc_now = datetime.now(timezone.utc)
-    # 计算"MiMo 日期"：UTC 7:00 前算前一天
-    if utc_now.hour < 7:
-        mimo_date = (utc_now - timedelta(days=1)).date()
-    else:
-        mimo_date = utc_now.date()
+    # 使用北京时间计算日期，与 MiMo 平台保持一致
+    cn_now = datetime.now(timezone(timedelta(hours=8)))
+    mimo_date = cn_now.date()
 
     # 需要查询的月份集合
     dates = [mimo_date - timedelta(days=i) for i in range(days)]
