@@ -164,7 +164,7 @@ def convert_to_credits(record: dict) -> float:
 
 
 def get_recent_days_usage(config: dict, days: int = 3) -> list[dict]:
-    """获取最近 N 天的使用量（已转换为 Credit）。
+    """获取最近有有效数据的 N 条使用记录（已转换为 Credit）。
 
     MiMo 按北京时间 (UTC+8) 划分每日数据，
     API 返回的 date 字段已按北京时间校对。
@@ -173,8 +173,9 @@ def get_recent_days_usage(config: dict, days: int = 3) -> list[dict]:
     cn_now = datetime.now(timezone(timedelta(hours=8)))
     mimo_date = cn_now.date()
 
-    # 需要查询的月份集合
-    dates = [mimo_date - timedelta(days=i) for i in range(days)]
+    # 扩大查询范围以找到有效数据（查询最近 30 天）
+    search_range = 30
+    dates = [mimo_date - timedelta(days=i) for i in range(search_range)]
     months_needed = {(d.year, d.month) for d in dates}
 
     # 按月查询并合并
@@ -182,24 +183,29 @@ def get_recent_days_usage(config: dict, days: int = 3) -> list[dict]:
     for year, month in months_needed:
         all_records.extend(get_daily_usage(config, year, month))
 
-    # 按日期筛选最近 N 天，并转换为 Credit
+    # 转换为 Credit 并筛选有效数据（至少有一个 token 使用量 > 0）
     date_set = {d.strftime("%Y-%m-%d") for d in dates}
-    filtered = []
+    all_usage = []
     for r in all_records:
         if r.get("date") in date_set:
-            filtered.append({
-                "date": r["date"],
-                "model": r.get("model", ""),
-                "credits": convert_to_credits(r),
-                "inputHitToken": r.get("inputHitToken", 0),
-                "inputMissToken": r.get("inputMissToken", 0),
-                "outputToken": r.get("outputToken", 0),
-                "requestCount": r.get("requestCount", 0),
-            })
+            hit = r.get("inputHitToken", 0)
+            miss = r.get("inputMissToken", 0)
+            output = r.get("outputToken", 0)
+            # 只保留有实际使用的记录
+            if hit > 0 or miss > 0 or output > 0:
+                all_usage.append({
+                    "date": r["date"],
+                    "model": r.get("model", ""),
+                    "credits": convert_to_credits(r),
+                    "inputHitToken": hit,
+                    "inputMissToken": miss,
+                    "outputToken": output,
+                    "requestCount": r.get("requestCount", 0),
+                })
 
-    # 按日期降序排列
-    filtered.sort(key=lambda r: r["date"], reverse=True)
-    return filtered
+    # 按日期降序排列，返回最近 N 条
+    all_usage.sort(key=lambda r: r["date"], reverse=True)
+    return all_usage[:days]
 
 
 def format_tokens(tokens: int) -> str:
