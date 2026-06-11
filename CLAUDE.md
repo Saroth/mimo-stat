@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-mimo-console — 爬取小米 MiMo 平台 (platform.xiaomimimo.com) 的 token 使用量数据，用于 tmux 状态栏等工具实时显示。
+mimo-stat — 爬取小米 MiMo 平台 (platform.xiaomimimo.com) 的 token 使用量数据，用于 tmux 状态栏等工具实时显示。
 
 ## Tech Stack
 
@@ -25,7 +25,7 @@ mimo-stat       # 详细格式
 mimo-stat -t    # tmux 状态栏单行格式
 ```
 
-首次运行会创建 `~/.config/mimo-console/config.json`，需填入 cookie 后重试。
+首次运行会创建 `~/.config/mimo-stat/config.json`，需填入 cookie 后重试。
 
 **详细格式输出:**
 ```
@@ -71,5 +71,5 @@ MiMo ￥31.61 Cr:0.2746% 📊[0608:0.3300% 0607:0.0042%]
 ## Architecture
 
 - `mimo_stat.py` — 入口，包含配置加载、API 请求、格式化输出
-- `~/.config/mimo-console/config.json` — 用户配置（base_url、cookie）
-- `~/.config/mimo-console/cache.json` — 缓存文件（10 秒有效期）
+- `~/.config/mimo-stat/config.json` — 用户配置（base_url、cookie）
+- `~/.config/mimo-stat/cache.json` — 缓存文件（10 秒有效期）

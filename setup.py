@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(
-    name="mimo-console",
+    name="mimo-stat",
     version="0.1.0",
     py_modules=["mimo_stat"],
     install_requires=[

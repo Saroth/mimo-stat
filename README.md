@@ -1,4 +1,4 @@
-# mimo-console
+# mimo-stat
 
 MiMo 平台 Token 使用量查询工具，用于 tmux 状态栏等场景实时显示。
 
@@ -49,7 +49,7 @@ MiMo: response 401
 
 ## 配置
 
-首次运行会创建 `~/.config/mimo-console/config.json`，填入浏览器登录后的 Cookie：
+首次运行会创建 `~/.config/mimo-stat/config.json`，填入浏览器登录后的 Cookie：
 
 ```json
 {

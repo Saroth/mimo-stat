@@ -19,7 +19,7 @@ from urllib.parse import quote
 
 import requests
 
-CONFIG_DIR = Path.home() / ".config" / "mimo-console"
+CONFIG_DIR = Path.home() / ".config" / "mimo-stat"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 CACHE_FILE = CONFIG_DIR / "cache.json"
 CACHE_TTL = 30  # 缓存有效期（秒）
