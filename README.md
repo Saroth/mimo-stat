@@ -19,9 +19,9 @@ pipx install -e .
 ## 使用
 
 ```bash
-mimo       # 详细格式
-mimo -t    # tmux 状态栏单行格式
-mimo -h    # 查看帮助
+mimo-stat       # 详细格式
+mimo-stat -t    # tmux 状态栏单行格式
+mimo-stat -h    # 查看帮助
 ```
 
 ### 详细格式
@@ -69,7 +69,7 @@ MiMo: response 401
 在 `~/.tmux.conf` 中添加：
 
 ```bash
-set -g status-right '#(~/.local/bin/mimo -t)'
+set -g status-right '#(~/.local/bin/mimo-stat -t)'
 ```
 
 ## API 端点

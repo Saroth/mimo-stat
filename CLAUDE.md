@@ -21,8 +21,8 @@ pipx install -e .  # 安装为全局命令
 ## Usage
 
 ```bash
-mimo       # 详细格式
-mimo -t    # tmux 状态栏单行格式
+mimo-stat       # 详细格式
+mimo-stat -t    # tmux 状态栏单行格式
 ```
 
 首次运行会创建 `~/.config/mimo-console/config.json`，需填入 cookie 后重试。
@@ -70,6 +70,6 @@ MiMo ￥31.61 Cr:0.2746% 📊[0608:0.3300% 0607:0.0042%]
 
 ## Architecture
 
-- `mimo.py` — 入口，包含配置加载、API 请求、格式化输出
+- `mimo_stat.py` — 入口，包含配置加载、API 请求、格式化输出
 - `~/.config/mimo-console/config.json` — 用户配置（base_url、cookie）
 - `~/.config/mimo-console/cache.json` — 缓存文件（10 秒有效期）
