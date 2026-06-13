@@ -72,4 +72,12 @@ MiMo ￥31.61 Cr:0.2746% 📊[0608:0.3300% 0607:0.0042%]
 
 - `mimo_stat.py` — 入口，包含配置加载、API 请求、格式化输出
 - `~/.config/mimo-stat/config.json` — 用户配置（base_url、cookie）
-- `~/.config/mimo-stat/cache.json` — 缓存文件（10 秒有效期）
+- `~/.config/mimo-stat/cache.json` — 缓存文件（30 秒有效期）
+
+### 缓存规则
+
+- 正常数据缓存 30 秒
+- 认证失败（401）也会缓存，避免频繁请求失败的 API
+- 缓存格式:
+  - 正常: `{"timestamp": ..., "data": {...}}`
+  - 错误: `{"timestamp": ..., "error": "错误信息"}`

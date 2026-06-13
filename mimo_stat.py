@@ -19,6 +19,12 @@ from urllib.parse import quote
 
 import requests
 
+
+class AuthError(Exception):
+    """认证失败异常（401）。"""
+    pass
+
+
 CONFIG_DIR = Path.home() / ".config" / "mimo-stat"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 CACHE_FILE = CONFIG_DIR / "cache.json"
@@ -47,7 +53,13 @@ def load_config() -> dict:
 
 
 def load_cache() -> dict | None:
-    """加载缓存，超过 TTL 则返回 None。"""
+    """加载缓存，超过 TTL 则返回 None。
+
+    返回格式:
+    - 正常数据: {"detail": ..., "usage": ..., ...}
+    - 错误缓存: {"error": "错误信息"}
+    - 无缓存: None
+    """
     if not CACHE_FILE.exists():
         return None
     try:
@@ -55,6 +67,9 @@ def load_cache() -> dict | None:
             cache = json.load(f)
         if time.time() - cache.get("timestamp", 0) > CACHE_TTL:
             return None
+        # 如果缓存包含错误信息，返回错误
+        if "error" in cache:
+            return {"error": cache["error"]}
         return cache.get("data")
     except (json.JSONDecodeError, KeyError):
         return None
@@ -83,8 +98,7 @@ def api_get(config: dict, path: str) -> dict:
     resp.raise_for_status()
     data = resp.json()
     if data.get("code") == 401:
-        print("认证失败，请更新 cookie。", file=sys.stderr)
-        sys.exit(1)
+        raise AuthError("认证失败，请更新 cookie。")
     return data
 
 
@@ -131,8 +145,7 @@ def api_post(config: dict, path: str, data: dict) -> dict:
     resp.raise_for_status()
     result = resp.json()
     if result.get("code") == 401:
-        print("认证失败，请更新 cookie。", file=sys.stderr)
-        sys.exit(1)
+        raise AuthError("认证失败，请更新 cookie。")
     return result
 
 
@@ -323,6 +336,13 @@ def main():
     # 尝试从缓存读取
     cached = load_cache()
     if cached:
+        # 如果缓存包含错误信息，直接显示错误
+        if "error" in cached:
+            if args.tmux:
+                print("MiMo: cookie expire")
+            else:
+                print(cached["error"], file=sys.stderr)
+            sys.exit(1)
         fmt = format_tmux if args.tmux else format_output
         print(fmt(cached["detail"], cached["usage"], cached.get("recent"), cached.get("balance")))
         return
@@ -336,6 +356,14 @@ def main():
         save_cache({"detail": detail, "usage": usage, "recent": recent, "balance": balance})
         fmt = format_tmux if args.tmux else format_output
         print(fmt(detail, usage, recent, balance))
+    except AuthError as e:
+        # 认证失败，缓存错误信息
+        save_cache({"error": str(e)})
+        if args.tmux:
+            print("MiMo: cookie expire")
+        else:
+            print(str(e), file=sys.stderr)
+        sys.exit(1)
     except requests.HTTPError as e:
         if args.tmux:
             print(f"MiMo: response {e.response.status_code}")
