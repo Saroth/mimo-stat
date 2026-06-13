@@ -95,6 +95,9 @@ def api_get(config: dict, path: str) -> dict:
         "Origin": config["base_url"],
     }
     resp = requests.get(url, headers=headers, timeout=10)
+    # 检查 HTTP 状态码是否为 401
+    if resp.status_code == 401:
+        raise AuthError("认证失败，请更新 cookie。")
     resp.raise_for_status()
     data = resp.json()
     if data.get("code") == 401:
@@ -142,6 +145,9 @@ def api_post(config: dict, path: str, data: dict) -> dict:
         "Origin": config["base_url"],
     }
     resp = requests.post(url, headers=headers, json=data, timeout=10)
+    # 检查 HTTP 状态码是否为 401
+    if resp.status_code == 401:
+        raise AuthError("认证失败，请更新 cookie。")
     resp.raise_for_status()
     result = resp.json()
     if result.get("code") == 401:
