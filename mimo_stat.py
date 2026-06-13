@@ -76,11 +76,18 @@ def load_cache() -> dict | None:
 
 
 def save_cache(data: dict) -> None:
-    """保存数据到缓存。"""
+    """保存数据到缓存。
+
+    data 中包含 "error" 键时，将错误信息保存在顶层，否则作为正常数据保存。
+    """
     CACHE_DIR = CACHE_FILE.parent
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    if "error" in data:
+        cache_entry = {"timestamp": time.time(), "error": data["error"]}
+    else:
+        cache_entry = {"timestamp": time.time(), "data": data}
     with open(CACHE_FILE, "w") as f:
-        json.dump({"timestamp": time.time(), "data": data}, f, ensure_ascii=False)
+        json.dump(cache_entry, f, ensure_ascii=False)
 
 
 def api_get(config: dict, path: str) -> dict:
