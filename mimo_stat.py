@@ -28,6 +28,7 @@ class AuthError(Exception):
 CONFIG_DIR = Path.home() / ".config" / "mimo-stat"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 CACHE_FILE = CONFIG_DIR / "cache.json"
+CLAUDE_STATS_FILE = Path.home() / ".claude" / "stats-cache.json"
 CACHE_TTL = 30  # 缓存有效期（秒）
 
 DEFAULT_CONFIG = {
@@ -245,7 +246,40 @@ def format_tokens(tokens: int) -> str:
     return str(tokens)
 
 
-def format_output(detail: dict, usage: dict, recent: list[dict] | None = None, balance: dict | None = None) -> str:
+def get_claude_recent_usage(days: int = 3) -> list[dict]:
+    """从 Claude Code stats 缓存获取最近 N 天有 token 消耗的数据。"""
+    if not CLAUDE_STATS_FILE.exists():
+        return []
+
+    try:
+        with open(CLAUDE_STATS_FILE) as f:
+            stats = json.load(f)
+    except (json.JSONDecodeError, KeyError):
+        return []
+
+    daily_tokens = stats.get("dailyModelTokens", [])
+    if not daily_tokens:
+        return []
+
+    # 转换为列表并计算每天总 token 数
+    usage_list = []
+    for day in daily_tokens:
+        date = day.get("date", "")
+        tokens_by_model = day.get("tokensByModel", {})
+        total_tokens = sum(tokens_by_model.values())
+        if total_tokens > 0:
+            usage_list.append({
+                "date": date,
+                "tokens": total_tokens,
+                "models": tokens_by_model,
+            })
+
+    # 按日期降序排列，返回最近 N 天
+    usage_list.sort(key=lambda r: r["date"], reverse=True)
+    return usage_list[:days]
+
+
+def format_output(detail: dict, usage: dict, recent: list[dict] | None = None, balance: dict | None = None, claude_recent: list[dict] | None = None) -> str:
     """格式化输出，适合 tmux 状态栏显示。"""
     plan = detail.get("data", {})
     usage_data = usage.get("data", {})
@@ -292,10 +326,17 @@ def format_output(detail: dict, usage: dict, recent: list[dict] | None = None, b
                     f"hit:{format_tokens(r['inputHitToken'])}, mis:{format_tokens(r['inputMissToken'])}, out:{format_tokens(r['outputToken'])}"
                 )
 
+    # Claude Code 使用量
+    if claude_recent:
+        lines.append("Claude usage:")
+        for r in claude_recent:
+            date_short = r["date"][2:].replace("-", "")  # YYMMDD
+            lines.append(f"  - {date_short}: {format_tokens(r['tokens'])}")
+
     return "\n".join(lines)
 
 
-def format_tmux(detail: dict, usage: dict, recent: list[dict] | None = None, balance: dict | None = None) -> str:
+def format_tmux(detail: dict, usage: dict, recent: list[dict] | None = None, balance: dict | None = None, claude_recent: list[dict] | None = None) -> str:
     """格式化输出为 tmux 状态栏单行格式。"""
     plan = detail.get("data", {})
     usage_data = usage.get("data", {})
@@ -336,6 +377,14 @@ def format_tmux(detail: dict, usage: dict, recent: list[dict] | None = None, bal
             rec_parts.append(f"{date_short}:{recent_percent:.4f}%")
         parts.append("📊[" + " ".join(rec_parts) + "]")
 
+    # Claude Code 使用量
+    if claude_recent:
+        claude_parts = []
+        for r in claude_recent:
+            date_short = r["date"][5:].replace("-", "")  # MMDD
+            claude_parts.append(f"{date_short}:{format_tokens(r['tokens'])}")
+        parts.append("Claude[" + " ".join(claude_parts) + "]")
+
     return " ".join(parts)
 
 
@@ -346,18 +395,33 @@ def main():
 
     config = load_config()
 
+    # 获取 Claude Code 使用量（不依赖 MiMo API）
+    claude_recent = get_claude_recent_usage(days=3)
+
     # 尝试从缓存读取
     cached = load_cache()
     if cached:
-        # 如果缓存包含错误信息，直接显示错误
+        # 如果缓存包含错误信息，显示 Claude 使用量后退出
         if "error" in cached:
+            if claude_recent:
+                if args.tmux:
+                    claude_parts = []
+                    for r in claude_recent:
+                        date_short = r["date"][5:].replace("-", "")  # MMDD
+                        claude_parts.append(f"{date_short}:{format_tokens(r['tokens'])}")
+                    print("Claude[" + " ".join(claude_parts) + "]")
+                else:
+                    print("Claude usage:")
+                    for r in claude_recent:
+                        date_short = r["date"][2:].replace("-", "")  # YYMMDD
+                        print(f"  - {date_short}: {format_tokens(r['tokens'])}")
             if args.tmux:
-                print("MiMo: cookie expire")
+                print("MiMo: expired")
             else:
                 print(cached["error"], file=sys.stderr)
             sys.exit(1)
         fmt = format_tmux if args.tmux else format_output
-        print(fmt(cached["detail"], cached["usage"], cached.get("recent"), cached.get("balance")))
+        print(fmt(cached["detail"], cached["usage"], cached.get("recent"), cached.get("balance"), claude_recent))
         return
 
     # 缓存未命中，请求 API
@@ -368,26 +432,62 @@ def main():
         balance = get_balance(config)
         save_cache({"detail": detail, "usage": usage, "recent": recent, "balance": balance})
         fmt = format_tmux if args.tmux else format_output
-        print(fmt(detail, usage, recent, balance))
+        print(fmt(detail, usage, recent, balance, claude_recent))
     except AuthError as e:
         # 认证失败，缓存错误信息
         save_cache({"error": str(e)})
         if args.tmux:
-            print("MiMo: cookie expire")
+            print("MiMo: expired")
         else:
             print(str(e), file=sys.stderr)
+        if claude_recent:
+            if args.tmux:
+                claude_parts = []
+                for r in claude_recent:
+                    date_short = r["date"][5:].replace("-", "")  # MMDD
+                    claude_parts.append(f"{date_short}:{format_tokens(r['tokens'])}")
+                print("Claude[" + " ".join(claude_parts) + "]")
+            else:
+                print("Claude usage:")
+                for r in claude_recent:
+                    date_short = r["date"][2:].replace("-", "")  # YYMMDD
+                    print(f"  - {date_short}: {format_tokens(r['tokens'])}")
         sys.exit(1)
     except requests.HTTPError as e:
         if args.tmux:
             print(f"MiMo: response {e.response.status_code}")
         else:
             print(f"请求失败: {e}", file=sys.stderr)
+        if claude_recent:
+            if args.tmux:
+                claude_parts = []
+                for r in claude_recent:
+                    date_short = r["date"][5:].replace("-", "")  # MMDD
+                    claude_parts.append(f"{date_short}:{format_tokens(r['tokens'])}")
+                print("Claude[" + " ".join(claude_parts) + "]")
+            else:
+                print("Claude usage:")
+                for r in claude_recent:
+                    date_short = r["date"][2:].replace("-", "")  # YYMMDD
+                    print(f"  - {date_short}: {format_tokens(r['tokens'])}")
         sys.exit(1)
     except requests.RequestException as e:
         if args.tmux:
             print("MiMo: request error")
         else:
             print(f"请求失败: {e}", file=sys.stderr)
+        if claude_recent:
+            if args.tmux:
+                claude_parts = []
+                for r in claude_recent:
+                    date_short = r["date"][5:].replace("-", "")  # MMDD
+                    claude_parts.append(f"{date_short}:{format_tokens(r['tokens'])}")
+                print("Claude[" + " ".join(claude_parts) + "]")
+            else:
+                print("Claude usage:")
+                for r in claude_recent:
+                    date_short = r["date"][2:].replace("-", "")  # YYMMDD
+                    print(f"  - {date_short}: {format_tokens(r['tokens'])}")
         sys.exit(1)
 
 
