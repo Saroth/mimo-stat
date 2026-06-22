@@ -29,7 +29,9 @@ CONFIG_DIR = Path.home() / ".config" / "mimo-stat"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 CACHE_FILE = CONFIG_DIR / "cache.json"
 CLAUDE_STATS_FILE = Path.home() / ".claude" / "stats-cache.json"
-CACHE_TTL = 30  # 缓存有效期（秒）
+CLAUDE_CACHE_FILE = CONFIG_DIR / "claude-cache.json"
+CACHE_TTL = 30  # MiMo 缓存有效期（秒）
+CLAUDE_CACHE_TTL = 30 * 60  # Claude 缓存有效期（30分钟）
 
 DEFAULT_CONFIG = {
     "base_url": "https://platform.xiaomimimo.com",
@@ -246,8 +248,57 @@ def format_tokens(tokens: int) -> str:
     return str(tokens)
 
 
+def load_claude_cache() -> list[dict] | None:
+    """加载 Claude 统计缓存，超过 TTL 则返回 None。"""
+    if not CLAUDE_CACHE_FILE.exists():
+        return None
+    try:
+        with open(CLAUDE_CACHE_FILE) as f:
+            cache = json.load(f)
+        if time.time() - cache.get("timestamp", 0) > CLAUDE_CACHE_TTL:
+            return None
+        return cache.get("data")
+    except (json.JSONDecodeError, KeyError):
+        return None
+
+
+def save_claude_cache(data: list[dict]) -> None:
+    """保存 Claude 统计数据到缓存。"""
+    CLAUDE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    cache_entry = {"timestamp": time.time(), "data": data}
+    with open(CLAUDE_CACHE_FILE, "w") as f:
+        json.dump(cache_entry, f, ensure_ascii=False)
+
+
+def refresh_claude_stats() -> bool:
+    """触发 Claude Code 统计数据刷新。"""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["claude", "-p", "/status"],
+            capture_output=True,
+            timeout=30,
+            text=True
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
 def get_claude_recent_usage(days: int = 3) -> list[dict]:
-    """从 Claude Code stats 缓存获取最近 N 天有 token 消耗的数据。"""
+    """从 Claude Code stats 缓存获取最近 N 天有 token 消耗的数据。
+
+    使用本地缓存，30分钟刷新一次。缓存过期时会触发 Claude Code 统计数据更新。
+    """
+    # 尝试从缓存读取
+    cached = load_claude_cache()
+    if cached is not None:
+        return cached[:days]
+
+    # 缓存未命中或已过期，触发刷新
+    refresh_claude_stats()
+
+    # 读取 Claude Code 的统计数据
     if not CLAUDE_STATS_FILE.exists():
         return []
 
@@ -274,8 +325,12 @@ def get_claude_recent_usage(days: int = 3) -> list[dict]:
                 "models": tokens_by_model,
             })
 
-    # 按日期降序排列，返回最近 N 天
+    # 按日期降序排列
     usage_list.sort(key=lambda r: r["date"], reverse=True)
+
+    # 保存到缓存
+    save_claude_cache(usage_list)
+
     return usage_list[:days]
 
 
