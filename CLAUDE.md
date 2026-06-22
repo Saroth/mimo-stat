@@ -31,17 +31,22 @@ mimo-stat -t    # tmux 状态栏单行格式
 ```
 Balance: ￥31.61
 Token Plan: MiMo Lite, exp:270607
-Credits usage: 125.35M / 49.20B, 0.2548%
+Credits usage: 163.84M / 49.20B, 0.3330%
 Recent usage:
-  - 260608: 152.28M, 0.3095%, hit:15.42M, mis:259.8K, out:59.6K
+  - 260609: 22.44M, 0.0456%, hit:133.6K, mis:68.6K, out:2.5K
+  - 260608: 174.67M, 0.3550%, hit:20.72M, mis:273.2K, out:68.2K
   - 260607: 2.08M, 0.0042%, hit:512, mis:20.7K, out:25
+Claude usage:
+  - 260616: 49.0K
+  - 260615: 218.0K
+  - 260614: 115.3K
 ```
 根据官网[说明](https://platform.xiaomimimo.com/docs/zh-CN/price/tokenplan/subscription)，
 MiMo有夜间 0.8 倍消耗，所以Recent的每日消耗Token换算的Credits可能高于实际用量.
 
 **Tmux 格式输出:**
 ```
-MiMo ￥31.61 Cr:0.2746% 📊[0608:0.3300% 0607:0.0042%]
+MiMo ￥31.61 Cr:0.3330% 📊[0609:0.0456% 0608:0.3550% 0607:0.0042%] Claude[0616:49.0K 0615:218.0K 0614:115.3K]
 ```
 
 ## API
