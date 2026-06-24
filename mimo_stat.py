@@ -464,7 +464,7 @@ def main():
                     for r in claude_recent:
                         date_short = r["date"][5:].replace("-", "")  # MMDD
                         claude_parts.append(f"{date_short}:{format_tokens(r['tokens'])}")
-                    print("🦀Claude[" + " ".join(claude_parts) + "]")
+                    print("🦀Claude[" + " ".join(claude_parts) + "]", end=" ")
                 else:
                     print("🦀Claude usage:")
                     for r in claude_recent:
@@ -497,7 +497,7 @@ def main():
                 for r in claude_recent:
                     date_short = r["date"][5:].replace("-", "")  # MMDD
                     claude_parts.append(f"{date_short}:{format_tokens(r['tokens'])}")
-                print("🦀Claude[" + " ".join(claude_parts) + "]")
+                print("🦀Claude[" + " ".join(claude_parts) + "]", end=" ")
             else:
                 print("🦀Claude usage:")
                 for r in claude_recent:
@@ -515,7 +515,7 @@ def main():
                 for r in claude_recent:
                     date_short = r["date"][5:].replace("-", "")  # MMDD
                     claude_parts.append(f"{date_short}:{format_tokens(r['tokens'])}")
-                print("🦀Claude[" + " ".join(claude_parts) + "]")
+                print("🦀Claude[" + " ".join(claude_parts) + "]", end=" ")
             else:
                 print("🦀Claude usage:")
                 for r in claude_recent:
@@ -533,7 +533,7 @@ def main():
                 for r in claude_recent:
                     date_short = r["date"][5:].replace("-", "")  # MMDD
                     claude_parts.append(f"{date_short}:{format_tokens(r['tokens'])}")
-                print("🦀Claude[" + " ".join(claude_parts) + "]")
+                print("🦀Claude[" + " ".join(claude_parts) + "]", end=" ")
             else:
                 print("🦀Claude usage:")
                 for r in claude_recent:
