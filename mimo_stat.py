@@ -491,10 +491,24 @@ def main():
     except AuthError as e:
         # 认证失败，缓存错误信息
         save_cache({"error": str(e)})
+        if claude_recent:
+            if args.tmux:
+                claude_parts = []
+                for r in claude_recent:
+                    date_short = r["date"][5:].replace("-", "")  # MMDD
+                    claude_parts.append(f"{date_short}:{format_tokens(r['tokens'])}")
+                print("🦀Claude[" + " ".join(claude_parts) + "]")
+            else:
+                print("🦀Claude usage:")
+                for r in claude_recent:
+                    date_short = r["date"][2:].replace("-", "")  # YYMMDD
+                    print(f"  - {date_short}: {format_tokens(r['tokens'])}")
         if args.tmux:
             print("MiMo: expired")
         else:
             print(str(e), file=sys.stderr)
+        sys.exit(1)
+    except requests.HTTPError as e:
         if claude_recent:
             if args.tmux:
                 claude_parts = []
@@ -507,12 +521,12 @@ def main():
                 for r in claude_recent:
                     date_short = r["date"][2:].replace("-", "")  # YYMMDD
                     print(f"  - {date_short}: {format_tokens(r['tokens'])}")
-        sys.exit(1)
-    except requests.HTTPError as e:
         if args.tmux:
             print(f"MiMo: response {e.response.status_code}")
         else:
             print(f"请求失败: {e}", file=sys.stderr)
+        sys.exit(1)
+    except requests.RequestException as e:
         if claude_recent:
             if args.tmux:
                 claude_parts = []
@@ -525,24 +539,10 @@ def main():
                 for r in claude_recent:
                     date_short = r["date"][2:].replace("-", "")  # YYMMDD
                     print(f"  - {date_short}: {format_tokens(r['tokens'])}")
-        sys.exit(1)
-    except requests.RequestException as e:
         if args.tmux:
             print("MiMo: request error")
         else:
             print(f"请求失败: {e}", file=sys.stderr)
-        if claude_recent:
-            if args.tmux:
-                claude_parts = []
-                for r in claude_recent:
-                    date_short = r["date"][5:].replace("-", "")  # MMDD
-                    claude_parts.append(f"{date_short}:{format_tokens(r['tokens'])}")
-                print("🦀Claude[" + " ".join(claude_parts) + "]")
-            else:
-                print("🦀Claude usage:")
-                for r in claude_recent:
-                    date_short = r["date"][2:].replace("-", "")  # YYMMDD
-                    print(f"  - {date_short}: {format_tokens(r['tokens'])}")
         sys.exit(1)
 
 
