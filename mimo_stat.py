@@ -34,6 +34,25 @@ CACHE_TTL = 30  # MiMo 缓存有效期（秒）
 DEFAULT_CONFIG = {
     "base_url": "https://platform.xiaomimimo.com",
     "cookie": "",
+    "display": {
+        "recent_days": 3,
+        "recent_months": 2,
+        "value_format": "token",   # token | percent | amount
+        "precision": 3,            # 小数点位数（amount 模式固定 2 位）
+    },
+}
+
+# 套餐价格映射: plan_code -> (月价¥, 月度Credits)
+# plan_code 来自 get_plan_detail 返回的 data.planCode
+PLAN_PRICING = {
+    "lite:month":     (39,    4_100_000_000),
+    "standard:month": (99,   11_000_000_000),
+    "pro:month":      (329,  38_000_000_000),
+    "max:month":      (659,  82_000_000_000),
+    "lite:year":      (411.84,  49_200_000_000),
+    "standard:year":  (1045.44, 132_000_000_000),
+    "pro:year":       (3474.24, 456_000_000_000),
+    "max:year":       (6959.04, 984_000_000_000),
 }
 
 
@@ -69,12 +88,22 @@ def login_with_browser() -> bool:
         print("错误: 需要安装 playwright，请运行: pip install playwright", file=sys.stderr)
         return False
 
+    # 检查是否有图形显示环境
+    import os
+    if not os.environ.get("DISPLAY"):
+        # SSH/tmux 会话不会继承 WSLg 的 DISPLAY，但 X11 socket 可用
+        if Path("/tmp/.X11-unix/X0").exists():
+            os.environ["DISPLAY"] = ":0"
+        else:
+            print("错误: 当前环境没有图形界面 (DISPLAY 未设置)，无法打开浏览器。", file=sys.stderr)
+            return False
+
     # 使用持久化浏览器上下文，保存登录状态
     browser_data_dir = CONFIG_DIR / "browser-data"
     browser_data_dir.mkdir(parents=True, exist_ok=True)
 
-    print("正在打开浏览器...")
-    print("请在浏览器中登录小米账号，登录完成后程序将自动获取 Cookie。")
+    print("正在打开浏览器...", file=sys.stderr)
+    print("请在浏览器中登录小米账号，登录完成后程序将自动获取 Cookie。", file=sys.stderr)
 
     try:
         with sync_playwright() as p:
@@ -90,7 +119,7 @@ def login_with_browser() -> bool:
 
             # 等待用户登录（最多 5 分钟）
             # 循环检查是否已登录（检测 api-platform_serviceToken cookie）
-            print("等待登录中... (最多 5 分钟)")
+            print("等待登录中... (最多 5 分钟)", file=sys.stderr)
             for i in range(300):  # 300秒 = 5分钟
                 time.sleep(1)
                 cookies = context.cookies()
@@ -251,6 +280,78 @@ def get_daily_usage(config: dict, year: int, month: int) -> list[dict]:
     return result.get("data", [])
 
 
+def get_monthly_usage(config: dict, months: int = 2) -> list[dict]:
+    """获取最近 N 个月的月度使用数据。
+
+    不传 month 参数时 API 返回月度汇总数据。
+    处理跨年情况：如当前为1月，则还需查询上一年12月。
+    """
+    cn_now = datetime.now(timezone(timedelta(hours=8)))
+    current_year = cn_now.year
+    current_month = cn_now.month
+
+    months_to_query = []
+    for i in range(months):
+        y = current_year
+        m = current_month - i
+        if m <= 0:
+            m += 12
+            y -= 1
+        months_to_query.append((y, m))
+
+    # 按年去重查询（同一年只需查一次）
+    years_needed = {y for y, _ in months_to_query}
+    year_data = {}
+    for y in years_needed:
+        result = api_post(config, "/usage/token-plan/list", {"year": y})
+        records = result.get("data", [])
+        # 按月份分组聚合（先按记录级别算 credits，再累加）
+        for r in records:
+            month_raw = r.get("month") or r.get("date", "")
+            # month_raw 可能是 "2025-01"、"2025-01-01" 或 "01"
+            if not isinstance(month_raw, str) or not month_raw:
+                continue
+            if len(month_raw) >= 7:
+                month_num = int(month_raw[5:7])
+            elif len(month_raw) == 2 and month_raw.isdigit():
+                month_num = int(month_raw)
+            else:
+                continue
+            year_data[(y, month_num)] = year_data.get((y, month_num), {})
+            for field in ("inputHitToken", "inputMissToken", "outputToken", "requestCount"):
+                year_data[(y, month_num)][field] = year_data[(y, month_num)].get(field, 0) + r.get(field, 0)
+            # credits 按模型分别计算后累加（不同模型费率不同）
+            year_data[(y, month_num)]["credits"] = year_data[(y, month_num)].get("credits", 0) + convert_to_credits(r)
+
+    # 按最近2个月的顺序组装结果
+    monthly = []
+    for y, m in months_to_query:
+        key = (y, m)
+        if key in year_data:
+            d = year_data[key]
+            monthly.append({
+                "year": y,
+                "month": m,
+                "credits": d.get("credits", 0),
+                "inputHitToken": d.get("inputHitToken", 0),
+                "inputMissToken": d.get("inputMissToken", 0),
+                "outputToken": d.get("outputToken", 0),
+                "requestCount": d.get("requestCount", 0),
+            })
+        else:
+            monthly.append({
+                "year": y,
+                "month": m,
+                "credits": 0,
+                "inputHitToken": 0,
+                "inputMissToken": 0,
+                "outputToken": 0,
+                "requestCount": 0,
+            })
+
+    return monthly
+
+
 # Token 到 Credit 转换率：{model: (命中缓存, 未命中缓存, 输出)}
 TOKEN_TO_CREDIT = {
     "mimo-v2.5-pro": (2.5, 300, 600),
@@ -317,69 +418,108 @@ def get_recent_days_usage(config: dict, days: int = 3) -> list[dict]:
     return all_usage[:days]
 
 
-def format_tokens(tokens: int) -> str:
-    """格式化 token 数量为人类可读格式。"""
-    if tokens >= 1_000_000_000:
-        return f"{tokens / 1_000_000_000:.2f}B"
-    if tokens >= 1_000_000:
-        return f"{tokens / 1_000_000:.2f}M"
-    if tokens >= 1_000:
-        return f"{tokens / 1_000:.1f}K"
-    return str(tokens)
+def format_tokens(tokens: int | float, precision: int = 2) -> str:
+    """格式化 token/credit 数量为人类可读格式。"""
+    fmt = f".{precision}f"
+    if abs(tokens) >= 1_000_000_000:
+        return f"{tokens / 1_000_000_000:{fmt}}B"
+    if abs(tokens) >= 1_000_000:
+        return f"{tokens / 1_000_000:{fmt}}M"
+    if abs(tokens) >= 1_000:
+        return f"{tokens / 1_000:{fmt}}K"
+    if isinstance(tokens, float):
+        return f"{tokens:{fmt}}"
+    return str(int(tokens))
 
 
-def format_output(detail: dict, usage: dict, recent: list[dict] | None = None, balance: dict | None = None) -> str:
-    """格式化输出，适合 tmux 状态栏显示。"""
+def format_amount(credits: float, price_per_credit: float) -> str:
+    """将 credits 按套餐单价转换为金额格式 ¥x.xx。"""
+    return f"¥{credits * price_per_credit:.2f}"
+
+
+def _format_value(credits: float, month_limit: float, ppc: float, fmt_mode: str, prec: int) -> str:
+    """根据显示模式格式化单条消耗数据。"""
+    if fmt_mode == "amount":
+        return format_amount(credits, ppc)
+    if fmt_mode == "percent":
+        pct = (credits / month_limit * 100) if month_limit > 0 else 0
+        return f"{pct:.{prec}f}%"
+    return format_tokens(credits, prec)
+
+
+def _format_all(credits: float, month_limit: float, ppc: float, prec: int) -> str:
+    """同时输出 token、percent、amount 三种格式，用逗号分隔。"""
+    pct = (credits / month_limit * 100) if month_limit > 0 else 0
+    return f"{format_tokens(credits, prec)}, {pct:.{prec}f}%, {format_amount(credits, ppc)}"
+
+
+def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | None = None, balance: dict | None = None, monthly: list[dict] | None = None) -> str:
+    """格式化多行输出（同时展示 token、percent、amount 三种格式）。"""
+    disp = config.get("display", DEFAULT_CONFIG["display"])
+    prec = disp.get("precision", 3)
+
     plan = detail.get("data", {})
     usage_data = usage.get("data", {})
 
     plan_name = plan.get("planName", "")
     plan_code = plan.get("planCode", "")
 
-    # 余额
+    plan_pricing = PLAN_PRICING.get(plan_code, (0, 0))
+    ppc = plan_pricing[0] / plan_pricing[1] if plan_pricing[1] > 0 else 0
+
     balance_amount = 0.0
     if balance:
         balance_amount = float(balance.get("data", {}).get("balance", "0"))
 
     lines = []
 
-    # 余额（有订阅或无订阅都显示）
     if balance_amount > 0:
         lines.append(f"Balance: ￥{balance_amount:.2f}")
-    # 没有订阅
     if not plan_code:
         lines.append("Token Plan: None")
     else:
-        end_date = plan.get("currentPeriodEnd", "")[:10].replace("-", "")[2:]  # YYMMDD
+        end_date = plan.get("currentPeriodEnd", "")[:10].replace("-", "")[2:]
 
-        # 套餐使用量（取 data.usage 下的 plan_total_token）
         usage_info = usage_data.get("usage", {})
         usage_items = usage_info.get("items", [])
         plan_item = next((i for i in usage_items if i["name"] == "plan_total_token"), None)
         month_used = plan_item["used"] if plan_item else 0
         month_limit = plan_item["limit"] if plan_item else 0
-        month_percent = (month_used / month_limit * 100) if month_limit > 0 else 0
 
         lines.append(f"Token Plan: MiMo {plan_name}, exp:{end_date}")
-        lines.append(f"Credits usage: {format_tokens(month_used)} / {format_tokens(month_limit)}, {month_percent:.3f}%")
+        lines.append(f"Credits usage: {_format_all(month_used, month_limit, ppc, prec)} / {_format_all(month_limit, month_limit, ppc, prec)}")
 
-        # 最近 3 天每日消耗
+        # 最近 N 天每日消耗
         if recent:
             lines.append("Recent usage:")
             for r in recent:
-                credits_used = r["credits"]
-                recent_percent = (credits_used / month_limit * 100) if month_limit > 0 else 0
-                date_short = r["date"][2:].replace("-", "")  # YYMMDD
+                date_short = r["date"][2:].replace("-", "")
+                val = _format_all(r["credits"], month_limit, ppc, prec)
                 lines.append(
-                    f"  - {date_short}: {format_tokens(credits_used)}, {recent_percent:.3f}%, "
+                    f"  - {date_short}: {val}, "
+                    f"hit:{format_tokens(r['inputHitToken'])}, mis:{format_tokens(r['inputMissToken'])}, out:{format_tokens(r['outputToken'])}"
+                )
+
+        # 最近 N 个月月度消耗
+        if monthly:
+            lines.append("Monthly usage:")
+            for r in monthly:
+                month_label = f"{r['year'] % 100:02d}{r['month']:02d}"
+                val = _format_all(r["credits"], month_limit, ppc, prec)
+                lines.append(
+                    f"  - {month_label}: {val}, "
                     f"hit:{format_tokens(r['inputHitToken'])}, mis:{format_tokens(r['inputMissToken'])}, out:{format_tokens(r['outputToken'])}"
                 )
 
     return "\n".join(lines)
 
 
-def format_tmux(detail: dict, usage: dict, recent: list[dict] | None = None, balance: dict | None = None) -> str:
+def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | None = None, balance: dict | None = None, monthly: list[dict] | None = None) -> str:
     """格式化输出为 tmux 状态栏单行格式。"""
+    disp = config.get("display", DEFAULT_CONFIG["display"])
+    fmt_mode = disp.get("value_format", "token")
+    prec = disp.get("precision", 3)
+
     plan = detail.get("data", {})
     usage_data = usage.get("data", {})
 
@@ -394,10 +534,13 @@ def format_tmux(detail: dict, usage: dict, recent: list[dict] | None = None, bal
     if balance_amount > 0:
         parts.append(f"￥{balance_amount:.2f}")
 
-    # 没有订阅
     if not plan_code:
-        parts.append("Cr:-")
+        parts.append("Crt:-")
         return "[" + " ".join(parts) + "]"
+
+    # 套餐单价（amount 模式需要）
+    plan_pricing = PLAN_PRICING.get(plan_code, (0, 0))
+    ppc = plan_pricing[0] / plan_pricing[1] if plan_pricing[1] > 0 else 0
 
     # 套餐使用量
     usage_info = usage_data.get("usage", {})
@@ -407,17 +550,25 @@ def format_tmux(detail: dict, usage: dict, recent: list[dict] | None = None, bal
     month_limit = plan_item["limit"] if plan_item else 0
     month_percent = (month_used / month_limit * 100) if month_limit > 0 else 0
 
-    parts.append(f"Cr:{month_percent:.3f}%")
+    parts.append(f"Crt:{month_percent:.3f}%")
 
-    # 最近 3 天每日消耗
+    # 最近 N 天每日消耗
     if recent:
         rec_parts = []
         for r in recent:
-            credits_used = r["credits"]
-            recent_percent = (credits_used / month_limit * 100) if month_limit > 0 else 0
-            date_short = r["date"][5:].replace("-", "")  # MMDD
-            rec_parts.append(f"{date_short}:{recent_percent:.3f}%")
-        parts.append("📊[" + " ".join(rec_parts) + "]")
+            date_short = r["date"][8:].replace("-", "")  # DD
+            val = _format_value(r["credits"], month_limit, ppc, fmt_mode, prec)
+            rec_parts.append(f"{date_short}:{val}")
+        parts.append("Dai[" + " ".join(rec_parts) + "]")
+
+    # 最近 N 个月月度消耗
+    if monthly:
+        mon_parts = []
+        for r in monthly:
+            month_label = f"{r['month']:02d}"
+            val = _format_value(r["credits"], month_limit, ppc, fmt_mode, prec)
+            mon_parts.append(f"{month_label}:{val}")
+        parts.append("Mon[" + " ".join(mon_parts) + "]")
 
     return " ".join(parts)
 
@@ -445,11 +596,11 @@ def main():
     if not config.get("cookie"):
         print("Cookie 未配置，正在打开浏览器获取...", file=sys.stderr)
         if not login_with_browser():
-            save_cache({"error": "登录失败，请手动运行 mimo-stat --login"})
+            save_cache({"error": "登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\""})
             if args.tmux:
                 print("🍚MiMo: login failed")
             else:
-                print("登录失败，请手动运行 mimo-stat --login", file=sys.stderr)
+                print("登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\"", file=sys.stderr)
             sys.exit(1)
         config = load_config()
 
@@ -461,11 +612,11 @@ def main():
             print("Cookie 已过期，正在重新登录...", file=sys.stderr)
             if not login_with_browser():
                 # 登录失败，缓存错误信息
-                save_cache({"error": "登录失败，请手动运行 mimo-stat --login"})
+                save_cache({"error": "登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\""})
                 if args.tmux:
                     print("🍚MiMo: login failed")
                 else:
-                    print("登录失败，请手动运行 mimo-stat --login", file=sys.stderr)
+                    print("登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\"", file=sys.stderr)
                 sys.exit(1)
             # 重新加载配置
             config = load_config()
@@ -473,39 +624,44 @@ def main():
             save_cache({"error": "clear"})
         else:
             fmt = format_tmux if args.tmux else format_output
-            print(fmt(cached["detail"], cached["usage"], cached.get("recent"), cached.get("balance")))
+            print(fmt(config, cached["detail"], cached["usage"], cached.get("recent"), cached.get("balance"), cached.get("monthly")))
             return
 
     # 缓存未命中，请求 API
+    disp = config.get("display", DEFAULT_CONFIG["display"])
+    recent_days = disp.get("recent_days", 3)
+    recent_months = disp.get("recent_months", 2)
     try:
         detail = get_plan_detail(config)
         usage = get_plan_usage(config)
-        recent = get_recent_days_usage(config, days=3)
+        recent = get_recent_days_usage(config, days=recent_days)
+        monthly = get_monthly_usage(config, months=recent_months)
         balance = get_balance(config)
-        save_cache({"detail": detail, "usage": usage, "recent": recent, "balance": balance})
+        save_cache({"detail": detail, "usage": usage, "recent": recent, "balance": balance, "monthly": monthly})
         fmt = format_tmux if args.tmux else format_output
-        print(fmt(detail, usage, recent, balance))
+        print(fmt(config, detail, usage, recent, balance, monthly))
     except AuthError as e:
         # 认证失败，自动重新登录
         print("Cookie 已过期，正在重新登录...", file=sys.stderr)
         if not login_with_browser():
             # 登录失败，缓存错误信息
-            save_cache({"error": "登录失败，请手动运行 mimo-stat --login"})
+            save_cache({"error": "登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\""})
             if args.tmux:
                 print("🍚MiMo: login failed")
             else:
-                print("登录失败，请手动运行 mimo-stat --login", file=sys.stderr)
+                print("登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\"", file=sys.stderr)
             sys.exit(1)
         # 重新加载配置并重试
         config = load_config()
         try:
             detail = get_plan_detail(config)
             usage = get_plan_usage(config)
-            recent = get_recent_days_usage(config, days=3)
+            recent = get_recent_days_usage(config, days=recent_days)
+            monthly = get_monthly_usage(config, months=recent_months)
             balance = get_balance(config)
-            save_cache({"detail": detail, "usage": usage, "recent": recent, "balance": balance})
+            save_cache({"detail": detail, "usage": usage, "recent": recent, "balance": balance, "monthly": monthly})
             fmt = format_tmux if args.tmux else format_output
-            print(fmt(detail, usage, recent, balance))
+            print(fmt(config, detail, usage, recent, balance, monthly))
         except Exception as e2:
             # 重试失败，缓存错误信息
             save_cache({"error": f"重新登录后仍然失败: {e2}"})
