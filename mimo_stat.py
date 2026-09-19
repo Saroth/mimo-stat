@@ -474,7 +474,7 @@ def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | 
     lines = []
 
     if balance_amount > 0:
-        lines.append(f"Balance: ￥{balance_amount:.2f}")
+        lines.append(f"Balance: ¥{balance_amount:.2f}")
     if not plan_code:
         lines.append("Token Plan: None")
     else:
@@ -525,14 +525,14 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
 
     plan_code = plan.get("planCode", "")
 
-    parts = ["🍚MiMo"]
+    parts = ["🍚"]
 
     # 余额
     balance_amount = 0.0
     if balance:
         balance_amount = float(balance.get("data", {}).get("balance", "0"))
     if balance_amount > 0:
-        parts.append(f"￥{balance_amount:.2f}")
+        parts.append(f"Bal:¥{balance_amount:.2f}")
 
     if not plan_code:
         parts.append("Crt:-")
@@ -598,7 +598,7 @@ def main():
         if not login_with_browser():
             save_cache({"error": "登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\""})
             if args.tmux:
-                print("🍚MiMo: login failed")
+                print("🍚login failed")
             else:
                 print("登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\"", file=sys.stderr)
             sys.exit(1)
@@ -614,7 +614,7 @@ def main():
                 # 登录失败，缓存错误信息
                 save_cache({"error": "登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\""})
                 if args.tmux:
-                    print("🍚MiMo: login failed")
+                    print("🍚login failed")
                 else:
                     print("登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\"", file=sys.stderr)
                 sys.exit(1)
@@ -647,7 +647,7 @@ def main():
             # 登录失败，缓存错误信息
             save_cache({"error": "登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\""})
             if args.tmux:
-                print("🍚MiMo: login failed")
+                print("🍚login failed")
             else:
                 print("登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\"", file=sys.stderr)
             sys.exit(1)
@@ -666,19 +666,19 @@ def main():
             # 重试失败，缓存错误信息
             save_cache({"error": f"重新登录后仍然失败: {e2}"})
             if args.tmux:
-                print("🍚MiMo: login failed")
+                print("🍚login failed")
             else:
                 print(f"重新登录后仍然失败: {e2}", file=sys.stderr)
             sys.exit(1)
     except requests.HTTPError as e:
         if args.tmux:
-            print(f"🍚MiMo: response {e.response.status_code}")
+            print(f"🍚response {e.response.status_code}")
         else:
             print(f"请求失败: {e}", file=sys.stderr)
         sys.exit(1)
     except requests.RequestException as e:
         if args.tmux:
-            print("🍚MiMo: request error")
+            print("🍚request error")
         else:
             print(f"请求失败: {e}", file=sys.stderr)
         sys.exit(1)
