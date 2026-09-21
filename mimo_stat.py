@@ -524,9 +524,24 @@ def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | 
     return "\n".join(lines)
 
 
+import re as _re
+
+_ANSI_RE = _re.compile(r"\033\[[0-9;]*m")
+
+
+def _strip_ansi(text: str) -> str:
+    """移除 ANSI 转义码。"""
+    return _ANSI_RE.sub("", text)
+
+
 def _colorize(text: str, color_code: str) -> str:
     """给文本添加 ANSI 颜色。"""
     return f"\033[{color_code}m{text}\033[0m"
+
+
+def _tmux_colorize(text: str, fg: str) -> str:
+    """给文本添加 tmux 状态栏颜色。"""
+    return f"#[fg={fg}]{text}#[fg=default]"
 
 
 def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | None = None, balance: dict | None = None, monthly: list[dict] | None = None, color: bool = False) -> str:
@@ -548,7 +563,7 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
         balance_amount = float(balance.get("data", {}).get("balance", "0"))
     if balance_amount > 0:
         bal_str = f"Bal:¥{balance_amount:.2f}"
-        parts.append(_colorize(bal_str, "32") if color else bal_str)
+        parts.append(_tmux_colorize(bal_str, "#5fff00") if color else bal_str)
 
     if not plan_code:
         parts.append("Crt:-")
@@ -568,8 +583,8 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
 
     crt_str = f"Crt:{month_percent:.3f}%"
     if color:
-        color_code = "31" if month_percent > 90 else ("33" if month_percent > 80 else "32")
-        parts.append(_colorize(crt_str, color_code))
+        fg = "#ff0000" if month_percent > 90 else ("#ffff00" if month_percent > 80 else "#5fff00")
+        parts.append(_tmux_colorize(crt_str, fg))
     else:
         parts.append(crt_str)
 
@@ -581,7 +596,7 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
             val = _format_value(r["credits"], month_limit, ppc, fmt_mode, prec)
             rec_parts.append(f"{date_short}:{val}")
         dai_str = "Dai[" + " ".join(rec_parts) + "]"
-        parts.append(_colorize(dai_str, "36") if color else dai_str)
+        parts.append(_tmux_colorize(dai_str, "#00ffff") if color else dai_str)
 
     # 最近 N 个月月度消耗
     if monthly:
@@ -591,7 +606,7 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
             val = _format_value(r["credits"], month_limit, ppc, fmt_mode, prec)
             mon_parts.append(f"{month_label}:{val}")
         mon_str = "Mon[" + " ".join(mon_parts) + "]"
-        parts.append(_colorize(mon_str, "35") if color else mon_str)
+        parts.append(_tmux_colorize(mon_str, "#ff8fff") if color else mon_str)
 
     return " ".join(parts)
 
