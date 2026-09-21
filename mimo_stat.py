@@ -31,6 +31,9 @@ CONFIG_FILE = CONFIG_DIR / "config.yml"
 CACHE_FILE = CONFIG_DIR / "cache.json"
 CACHE_TTL = 30  # MiMo 缓存有效期（秒）
 
+# 图标定义
+ICON_MIMO = "🍚"  # MiMo 平台标识
+
 DEFAULT_CONFIG = {
     "base_url": "https://platform.xiaomimimo.com",
     "cookie": "",
@@ -453,7 +456,7 @@ def _format_all(credits: float, month_limit: float, ppc: float, prec: int) -> st
     return f"{format_tokens(credits, prec)}, {pct:.{prec}f}%, {format_amount(credits, ppc)}"
 
 
-def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | None = None, balance: dict | None = None, monthly: list[dict] | None = None) -> str:
+def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | None = None, balance: dict | None = None, monthly: list[dict] | None = None, color: bool = False) -> str:
     """格式化多行输出（同时展示 token、percent、amount 三种格式）。"""
     disp = config.get("display", DEFAULT_CONFIG["display"])
     prec = disp.get("precision", 3)
@@ -474,7 +477,8 @@ def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | 
     lines = []
 
     if balance_amount > 0:
-        lines.append(f"Balance: ¥{balance_amount:.2f}")
+        bal_str = f"Balance: ¥{balance_amount:.2f}"
+        lines.append(_colorize(bal_str, "32") if color else bal_str)
     if not plan_code:
         lines.append("Token Plan: None")
     else:
@@ -485,13 +489,19 @@ def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | 
         plan_item = next((i for i in usage_items if i["name"] == "plan_total_token"), None)
         month_used = plan_item["used"] if plan_item else 0
         month_limit = plan_item["limit"] if plan_item else 0
+        month_percent = (month_used / month_limit * 100) if month_limit > 0 else 0
 
         lines.append(f"Token Plan: MiMo {plan_name}, exp:{end_date}")
-        lines.append(f"Credits usage: {_format_all(month_used, month_limit, ppc, prec)} / {_format_all(month_limit, month_limit, ppc, prec)}")
+        usage_str = f"Credits usage: {_format_all(month_used, month_limit, ppc, prec)} / {_format_all(month_limit, month_limit, ppc, prec)}"
+        if color:
+            color_code = "31" if month_percent > 90 else ("33" if month_percent > 80 else "32")
+            lines.append(_colorize(usage_str, color_code))
+        else:
+            lines.append(usage_str)
 
         # 最近 N 天每日消耗
         if recent:
-            lines.append("Recent usage:")
+            lines.append(_colorize("Recent usage:", "36") if color else "Recent usage:")
             for r in recent:
                 date_short = r["date"][2:].replace("-", "")
                 val = _format_all(r["credits"], month_limit, ppc, prec)
@@ -502,7 +512,7 @@ def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | 
 
         # 最近 N 个月月度消耗
         if monthly:
-            lines.append("Monthly usage:")
+            lines.append(_colorize("Monthly usage:", "35") if color else "Monthly usage:")
             for r in monthly:
                 month_label = f"{r['year'] % 100:02d}{r['month']:02d}"
                 val = _format_all(r["credits"], month_limit, ppc, prec)
@@ -514,7 +524,12 @@ def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | 
     return "\n".join(lines)
 
 
-def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | None = None, balance: dict | None = None, monthly: list[dict] | None = None) -> str:
+def _colorize(text: str, color_code: str) -> str:
+    """给文本添加 ANSI 颜色。"""
+    return f"\033[{color_code}m{text}\033[0m"
+
+
+def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | None = None, balance: dict | None = None, monthly: list[dict] | None = None, color: bool = False) -> str:
     """格式化输出为 tmux 状态栏单行格式。"""
     disp = config.get("display", DEFAULT_CONFIG["display"])
     fmt_mode = disp.get("value_format", "token")
@@ -525,14 +540,15 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
 
     plan_code = plan.get("planCode", "")
 
-    parts = ["🍚"]
+    parts = [ICON_MIMO]
 
     # 余额
     balance_amount = 0.0
     if balance:
         balance_amount = float(balance.get("data", {}).get("balance", "0"))
     if balance_amount > 0:
-        parts.append(f"Bal:¥{balance_amount:.2f}")
+        bal_str = f"Bal:¥{balance_amount:.2f}"
+        parts.append(_colorize(bal_str, "32") if color else bal_str)
 
     if not plan_code:
         parts.append("Crt:-")
@@ -550,7 +566,12 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
     month_limit = plan_item["limit"] if plan_item else 0
     month_percent = (month_used / month_limit * 100) if month_limit > 0 else 0
 
-    parts.append(f"Crt:{month_percent:.3f}%")
+    crt_str = f"Crt:{month_percent:.3f}%"
+    if color:
+        color_code = "31" if month_percent > 90 else ("33" if month_percent > 80 else "32")
+        parts.append(_colorize(crt_str, color_code))
+    else:
+        parts.append(crt_str)
 
     # 最近 N 天每日消耗
     if recent:
@@ -559,7 +580,8 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
             date_short = r["date"][8:].replace("-", "")  # DD
             val = _format_value(r["credits"], month_limit, ppc, fmt_mode, prec)
             rec_parts.append(f"{date_short}:{val}")
-        parts.append("Dai[" + " ".join(rec_parts) + "]")
+        dai_str = "Dai[" + " ".join(rec_parts) + "]"
+        parts.append(_colorize(dai_str, "36") if color else dai_str)
 
     # 最近 N 个月月度消耗
     if monthly:
@@ -568,7 +590,8 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
             month_label = f"{r['month']:02d}"
             val = _format_value(r["credits"], month_limit, ppc, fmt_mode, prec)
             mon_parts.append(f"{month_label}:{val}")
-        parts.append("Mon[" + " ".join(mon_parts) + "]")
+        mon_str = "Mon[" + " ".join(mon_parts) + "]"
+        parts.append(_colorize(mon_str, "35") if color else mon_str)
 
     return " ".join(parts)
 
@@ -576,7 +599,8 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
 def main():
     parser = argparse.ArgumentParser(description="MiMo 平台 token 使用量查询工具")
     parser.add_argument("-t", "--tmux", action="store_true", help="输出适合 tmux 状态栏的单行格式")
-    parser.add_argument("-c", "--cookie", help="更新配置文件中的 cookie 值")
+    parser.add_argument("-C", "--cookie", help="更新配置文件中的 cookie 值")
+    parser.add_argument("-c", "--color", action="store_true", help="启用高亮输出（ANSI 颜色）")
     parser.add_argument("-l", "--login", action="store_true", help="通过浏览器登录获取 cookie")
     args = parser.parse_args()
 
@@ -596,11 +620,11 @@ def main():
     if not config.get("cookie"):
         print("Cookie 未配置，正在打开浏览器获取...", file=sys.stderr)
         if not login_with_browser():
-            save_cache({"error": "登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\""})
+            save_cache({"error": "登录失败，请手动获取 Cookie 后运行: mimo-stat -C \"<cookie>\""})
             if args.tmux:
-                print("🍚login failed")
+                print(f"{ICON_MIMO}login failed")
             else:
-                print("登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\"", file=sys.stderr)
+                print("登录失败，请手动获取 Cookie 后运行: mimo-stat -C \"<cookie>\"", file=sys.stderr)
             sys.exit(1)
         config = load_config()
 
@@ -612,11 +636,11 @@ def main():
             print("Cookie 已过期，正在重新登录...", file=sys.stderr)
             if not login_with_browser():
                 # 登录失败，缓存错误信息
-                save_cache({"error": "登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\""})
+                save_cache({"error": "登录失败，请手动获取 Cookie 后运行: mimo-stat -C \"<cookie>\""})
                 if args.tmux:
-                    print("🍚login failed")
+                    print(f"{ICON_MIMO}login failed")
                 else:
-                    print("登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\"", file=sys.stderr)
+                    print("登录失败，请手动获取 Cookie 后运行: mimo-stat -C \"<cookie>\"", file=sys.stderr)
                 sys.exit(1)
             # 重新加载配置
             config = load_config()
@@ -624,7 +648,7 @@ def main():
             save_cache({"error": "clear"})
         else:
             fmt = format_tmux if args.tmux else format_output
-            print(fmt(config, cached["detail"], cached["usage"], cached.get("recent"), cached.get("balance"), cached.get("monthly")))
+            print(fmt(config, cached["detail"], cached["usage"], cached.get("recent"), cached.get("balance"), cached.get("monthly"), color=args.color))
             return
 
     # 缓存未命中，请求 API
@@ -639,17 +663,17 @@ def main():
         balance = get_balance(config)
         save_cache({"detail": detail, "usage": usage, "recent": recent, "balance": balance, "monthly": monthly})
         fmt = format_tmux if args.tmux else format_output
-        print(fmt(config, detail, usage, recent, balance, monthly))
+        print(fmt(config, detail, usage, recent, balance, monthly, color=args.color))
     except AuthError as e:
         # 认证失败，自动重新登录
         print("Cookie 已过期，正在重新登录...", file=sys.stderr)
         if not login_with_browser():
             # 登录失败，缓存错误信息
-            save_cache({"error": "登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\""})
+            save_cache({"error": "登录失败，请手动获取 Cookie 后运行: mimo-stat -C \"<cookie>\""})
             if args.tmux:
-                print("🍚login failed")
+                print(f"{ICON_MIMO}login failed")
             else:
-                print("登录失败，请手动获取 Cookie 后运行: mimo-stat -c \"<cookie>\"", file=sys.stderr)
+                print("登录失败，请手动获取 Cookie 后运行: mimo-stat -C \"<cookie>\"", file=sys.stderr)
             sys.exit(1)
         # 重新加载配置并重试
         config = load_config()
@@ -661,24 +685,24 @@ def main():
             balance = get_balance(config)
             save_cache({"detail": detail, "usage": usage, "recent": recent, "balance": balance, "monthly": monthly})
             fmt = format_tmux if args.tmux else format_output
-            print(fmt(config, detail, usage, recent, balance, monthly))
+            print(fmt(config, detail, usage, recent, balance, monthly, color=args.color))
         except Exception as e2:
             # 重试失败，缓存错误信息
             save_cache({"error": f"重新登录后仍然失败: {e2}"})
             if args.tmux:
-                print("🍚login failed")
+                print(f"{ICON_MIMO}login failed")
             else:
                 print(f"重新登录后仍然失败: {e2}", file=sys.stderr)
             sys.exit(1)
     except requests.HTTPError as e:
         if args.tmux:
-            print(f"🍚response {e.response.status_code}")
+            print(f"{ICON_MIMO}response {e.response.status_code}")
         else:
             print(f"请求失败: {e}", file=sys.stderr)
         sys.exit(1)
     except requests.RequestException as e:
         if args.tmux:
-            print("🍚request error")
+            print(f"{ICON_MIMO}request error")
         else:
             print(f"请求失败: {e}", file=sys.stderr)
         sys.exit(1)
