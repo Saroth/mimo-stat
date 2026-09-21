@@ -38,7 +38,7 @@ mimo-stat -h    # 查看帮助
 
 ### 详细格式
 
-```
+```log
 Balance: ¥31.61
 Token Plan: MiMo Lite, exp:270607
 Credits usage: 134.27M, 0.273%, ¥3.88 / 49.20B, 100.000%, ¥1420.00

@@ -597,10 +597,14 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
         for r in recent:
             date_short = r["date"][8:].replace("-", "")  # DD
             val = _format_value(r["credits"], month_limit, ppc, fmt_mode, prec)
-            rec_parts.append(f"{date_short}{_tmux_colorize(':', gray)}{val}" if color else f"{date_short}:{val}")
+            if color:
+                rec_parts.append(f"#[fg=#00ffff]{date_short}#[fg={gray}]:#[fg=default]{val}")
+            else:
+                rec_parts.append(f"{date_short}:{val}")
         if color:
             key = _tmux_colorize("Dai", "#00ffff", bold=True)
-            parts.append(f"{key}#[fg={gray}]#[nobold][" + " ".join(rec_parts) + "]#[fg=default]")
+            inner = f"#[fg=default] ".join(rec_parts)
+            parts.append(f"{key}#[fg={gray}]#[nobold][{inner}#[fg={gray}]#[nobold]]#[fg=default]")
         else:
             parts.append("Dai[" + " ".join(rec_parts) + "]")
 
@@ -610,10 +614,14 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
         for r in monthly:
             month_label = f"{r['month']:02d}"
             val = _format_value(r["credits"], month_limit, ppc, fmt_mode, prec)
-            mon_parts.append(f"{month_label}{_tmux_colorize(':', gray)}{val}" if color else f"{month_label}:{val}")
+            if color:
+                mon_parts.append(f"#[fg=#ff8fff]{month_label}#[fg={gray}]:#[fg=default]{val}")
+            else:
+                mon_parts.append(f"{month_label}:{val}")
         if color:
             key = _tmux_colorize("Mon", "#ff8fff", bold=True)
-            parts.append(f"{key}#[fg={gray}]#[nobold][" + " ".join(mon_parts) + "]#[fg=default]")
+            inner = f"#[fg=default] ".join(mon_parts)
+            parts.append(f"{key}#[fg={gray}]#[nobold][{inner}#[fg={gray}]#[nobold]]#[fg=default]")
         else:
             parts.append("Mon[" + " ".join(mon_parts) + "]")
 
