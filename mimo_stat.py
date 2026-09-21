@@ -476,9 +476,13 @@ def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | 
 
     lines = []
 
+    gray = "\033[90m"
+    reset = "\033[0m"
     if balance_amount > 0:
-        bal_str = f"Balance: ¥{balance_amount:.2f}"
-        lines.append(_colorize(bal_str, "32") if color else bal_str)
+        if color:
+            lines.append(f"\033[1;32mBalance\033[0m{gray}:¥{balance_amount:.2f}{reset}")
+        else:
+            lines.append(f"Balance: ¥{balance_amount:.2f}")
     if not plan_code:
         lines.append("Token Plan: None")
     else:
@@ -489,19 +493,13 @@ def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | 
         plan_item = next((i for i in usage_items if i["name"] == "plan_total_token"), None)
         month_used = plan_item["used"] if plan_item else 0
         month_limit = plan_item["limit"] if plan_item else 0
-        month_percent = (month_used / month_limit * 100) if month_limit > 0 else 0
 
         lines.append(f"Token Plan: MiMo {plan_name}, exp:{end_date}")
-        usage_str = f"Credits usage: {_format_all(month_used, month_limit, ppc, prec)} / {_format_all(month_limit, month_limit, ppc, prec)}"
-        if color:
-            color_code = "31" if month_percent > 90 else ("33" if month_percent > 80 else "32")
-            lines.append(_colorize(usage_str, color_code))
-        else:
-            lines.append(usage_str)
+        lines.append(f"Credits usage: {_format_all(month_used, month_limit, ppc, prec)} / {_format_all(month_limit, month_limit, ppc, prec)}")
 
         # 最近 N 天每日消耗
         if recent:
-            lines.append(_colorize("Recent usage:", "36") if color else "Recent usage:")
+            lines.append(f"\033[1;36mRecent usage:\033[0m" if color else "Recent usage:")
             for r in recent:
                 date_short = r["date"][2:].replace("-", "")
                 val = _format_all(r["credits"], month_limit, ppc, prec)
@@ -512,7 +510,7 @@ def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | 
 
         # 最近 N 个月月度消耗
         if monthly:
-            lines.append(_colorize("Monthly usage:", "35") if color else "Monthly usage:")
+            lines.append(f"\033[1;35mMonthly usage:\033[0m" if color else "Monthly usage:")
             for r in monthly:
                 month_label = f"{r['year'] % 100:02d}{r['month']:02d}"
                 val = _format_all(r["credits"], month_limit, ppc, prec)
@@ -539,9 +537,10 @@ def _colorize(text: str, color_code: str) -> str:
     return f"\033[{color_code}m{text}\033[0m"
 
 
-def _tmux_colorize(text: str, fg: str) -> str:
+def _tmux_colorize(text: str, fg: str, bold: bool = False) -> str:
     """给文本添加 tmux 状态栏颜色。"""
-    return f"#[fg={fg}]{text}#[fg=default]"
+    attr = "bold," if bold else ""
+    return f"#[{attr}fg={fg}]{text}#[fg=default,nobold]"
 
 
 def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | None = None, balance: dict | None = None, monthly: list[dict] | None = None, color: bool = False) -> str:
@@ -561,9 +560,13 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
     balance_amount = 0.0
     if balance:
         balance_amount = float(balance.get("data", {}).get("balance", "0"))
+    gray = "#808080"
     if balance_amount > 0:
-        bal_str = f"Bal:¥{balance_amount:.2f}"
-        parts.append(_tmux_colorize(bal_str, "#5fff00") if color else bal_str)
+        if color:
+            key = _tmux_colorize("Bal", "#5fff00", bold=True)
+            parts.append(f"{key}#[fg={gray}]#[nobold]:¥{balance_amount:.2f}#[fg=default]")
+        else:
+            parts.append(f"Bal:¥{balance_amount:.2f}")
 
     if not plan_code:
         parts.append("Crt:-")
@@ -581,12 +584,12 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
     month_limit = plan_item["limit"] if plan_item else 0
     month_percent = (month_used / month_limit * 100) if month_limit > 0 else 0
 
-    crt_str = f"Crt:{month_percent:.3f}%"
     if color:
         fg = "#ff0000" if month_percent > 90 else ("#ffff00" if month_percent > 80 else "#5fff00")
-        parts.append(_tmux_colorize(crt_str, fg))
+        key = _tmux_colorize("Crt", fg, bold=True)
+        parts.append(f"{key}#[fg={gray}]#[nobold]:{month_percent:.3f}%#[fg=default]")
     else:
-        parts.append(crt_str)
+        parts.append(f"Crt:{month_percent:.3f}%")
 
     # 最近 N 天每日消耗
     if recent:
@@ -594,9 +597,12 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
         for r in recent:
             date_short = r["date"][8:].replace("-", "")  # DD
             val = _format_value(r["credits"], month_limit, ppc, fmt_mode, prec)
-            rec_parts.append(f"{date_short}:{val}")
-        dai_str = "Dai[" + " ".join(rec_parts) + "]"
-        parts.append(_tmux_colorize(dai_str, "#00ffff") if color else dai_str)
+            rec_parts.append(f"{date_short}{_tmux_colorize(':', gray)}{val}" if color else f"{date_short}:{val}")
+        if color:
+            key = _tmux_colorize("Dai", "#00ffff", bold=True)
+            parts.append(f"{key}#[fg={gray}]#[nobold][" + " ".join(rec_parts) + "]#[fg=default]")
+        else:
+            parts.append("Dai[" + " ".join(rec_parts) + "]")
 
     # 最近 N 个月月度消耗
     if monthly:
@@ -604,9 +610,12 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
         for r in monthly:
             month_label = f"{r['month']:02d}"
             val = _format_value(r["credits"], month_limit, ppc, fmt_mode, prec)
-            mon_parts.append(f"{month_label}:{val}")
-        mon_str = "Mon[" + " ".join(mon_parts) + "]"
-        parts.append(_tmux_colorize(mon_str, "#ff8fff") if color else mon_str)
+            mon_parts.append(f"{month_label}{_tmux_colorize(':', gray)}{val}" if color else f"{month_label}:{val}")
+        if color:
+            key = _tmux_colorize("Mon", "#ff8fff", bold=True)
+            parts.append(f"{key}#[fg={gray}]#[nobold][" + " ".join(mon_parts) + "]#[fg=default]")
+        else:
+            parts.append("Mon[" + " ".join(mon_parts) + "]")
 
     return " ".join(parts)
 
