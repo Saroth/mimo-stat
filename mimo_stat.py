@@ -357,10 +357,11 @@ def get_monthly_usage(config: dict, months: int = 2) -> list[dict]:
 
 # Token 到 Credit 转换率：{model: (命中缓存, 未命中缓存, 输出)}
 TOKEN_TO_CREDIT = {
+    "mimo-v2.6-pro": (2.5, 300, 600),
+    "mimo-v2.6-flash": (2, 100, 200),
+    "mimo-v2.6-pro-ultraspeed": (25, 3000, 6000),
     "mimo-v2.5-pro": (2.5, 300, 600),
     "mimo-v2.5": (2, 100, 200),
-    "mimo-v2-pro": (2.5, 300, 600),
-    "mimo-v2-omni": (2, 100, 200),
 }
 
 
