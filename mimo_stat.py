@@ -17,8 +17,9 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-import requests
 import yaml
+
+# requests 惰性导入：缓存命中路径（tmux 弹窗/status 栏）用不到，顶层导入要 ~130ms
 
 
 class AuthError(Exception):
@@ -283,6 +284,7 @@ def flatten_day(models: dict, date_str: str) -> dict:
 
 def api_get(config: dict, path: str) -> dict:
     """发送 GET 请求到 MiMo API。"""
+    import requests
     url = f"{config['base_url']}/api/v1{path}"
     headers = {
         "Cookie": config["cookie"],
@@ -328,6 +330,7 @@ def get_ph_from_cookie(cookie: str) -> str:
 
 def api_post(config: dict, path: str, data: dict) -> dict:
     """发送 POST 请求到 MiMo API。"""
+    import requests
     ph = get_ph_from_cookie(config["cookie"])
     url = f"{config['base_url']}/api/v1{path}"
     if ph:
@@ -867,6 +870,7 @@ def main():
 
     # 缓存未命中，请求 API（多行输出固定 30 天/6 个月，tmux 单行由 format_tmux 按 config 截取）
     history = load_history()
+    import requests  # 走到这里才需要；异常类型在下方 except 中引用
     try:
         detail = get_plan_detail(config)
         usage = get_plan_usage(config)
