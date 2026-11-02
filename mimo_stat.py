@@ -45,6 +45,7 @@ DEFAULT_CONFIG = {
         "recent_months": 2,
         "value_format": "token",   # token | percent | amount
         "precision": 3,               # 小数点位数（amount 模式固定 2 位）
+        "show_con": True,             # tmux 状态栏是否显示 Con 段
     },
 }
 
@@ -71,9 +72,11 @@ def load_config() -> dict:
         print(f"已创建默认配置: {CONFIG_FILE}", file=sys.stderr)
     with open(CONFIG_FILE, encoding="utf-8") as f:
         config = yaml.safe_load(f)
-    # 合并默认值
+    # 合并默认值（display 逐键合并，兼容旧配置缺新键）
     for key, value in DEFAULT_CONFIG.items():
         config.setdefault(key, value)
+    for key, value in DEFAULT_CONFIG["display"].items():
+        config.setdefault("display", {}).setdefault(key, value)
     return config
 
 
@@ -244,13 +247,13 @@ def save_history(history: dict) -> None:
 def settled_cutoff() -> tuple[date, str]:
     """返回 (已定稿的最新日期, 最新定稿月份 "YYYY-MM")。
 
-    官网将每天 8:00 前的消耗计入前一天，故 8:30 后前一天数据才不再变化；
-    跨月同理，次月 1 日 8:30 后上月数据才定稿。
+    官网将每天 8:00 前的消耗计入前一天，故 8:10 后前一天数据才不再变化；
+    跨月同理，次月 1 日 8:10 后上月数据才定稿。
     """
     cn_now = datetime.now(timezone(timedelta(hours=8)))
-    settled_date = cn_now.date() - timedelta(days=2 if (cn_now.hour, cn_now.minute) < (8, 30) else 1)
-    if (cn_now.day, cn_now.hour, cn_now.minute) < (1, 8, 30):
-        # 月初1日8:30前，上上月才定稿
+    settled_date = cn_now.date() - timedelta(days=2 if (cn_now.hour, cn_now.minute) < (8, 10) else 1)
+    if (cn_now.day, cn_now.hour, cn_now.minute) < (1, 8, 10):
+        # 月初1日8:10前，上上月才定稿
         first_of_prev = (cn_now.date().replace(day=1) - timedelta(days=1))
         settled_month = (first_of_prev.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
     else:
@@ -602,10 +605,10 @@ def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | 
 
     lines = []
 
-    gray = green = cyan = magenta = red = yellow = bold = reset = ""
+    gray = blue = cyan = magenta = red = yellow = bold = reset = ""
     if color:
         gray = "\033[1;90m"
-        green = "\033[1;32m"
+        blue = "\033[1;34m"
         cyan = "\033[1;36m"
         magenta = "\033[1;35m"
         red = "\033[1;31m"
@@ -613,9 +616,9 @@ def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | 
         bold = "\033[1m"
         reset = "\033[0m"
     if balance_amount > 0:
-        lines.append(f"{green}Balance{reset}: ¥{balance_amount:.2f}")
+        lines.append(f"{blue}Balance{reset}: ¥{balance_amount:.2f}")
     if not plan_code:
-        lines.append(f"{green}Token Plan{reset}: None")
+        lines.append(f"{blue}Token Plan{reset}: None")
     else:
         end_date = plan.get("currentPeriodEnd", "")[:10]
         usage_info = usage_data.get("usage", {})
@@ -625,15 +628,20 @@ def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | 
         credit_limit = plan_item["limit"] if plan_item else 0
 
         period = "年度" if plan_code.endswith(":year") else "月度"
-        lines.append(f"{green}Token Plan{reset}: {gray}{plan_name} {period}套餐, ¥{plan_pricing[0]:.2f}{reset}, {bold}有效期至{reset}: {gray}{end_date}{reset}")
+        lines.append(f"{blue}Token Plan{reset}: {gray}{plan_name} {period}套餐, ¥{plan_pricing[0]:.2f}{reset}, {bold}有效期至{reset}: {gray}{end_date}{reset}")
         pct = (credit_used / credit_limit * 100) if credit_limit > 0 else 0
-        lines.append(f"{green}Credits usage{reset}:"
+        lines.append(f"{blue}Credits usage{reset}:"
                + f" {gray}{format_tokens(credit_used, prec)} / {format_tokens(credit_limit, prec)},{reset}"
                + f" 已使用 {red}{pct:.{prec}f}%{reset}, {format_amount(credit_used, ppc)}")
 
         # 最近 N 天/月消耗，两表统一列宽；仅 Daily 做异常高亮
         header = ["Daily", "Cost", "Percent", "Total", "Hit", "Miss", "MisRate", "Out"]
         tables = []
+        # 当前活跃日/月：与 settled_cutoff 同规则，8:10 前未跨天，回退一天
+        cn_now = datetime.now(timezone(timedelta(hours=8)))
+        active = cn_now.date() - (timedelta(days=1) if (cn_now.hour, cn_now.minute) < (8, 10) else timedelta())
+        cur_day, cur_month = active.strftime("%Y-%m-%d"), (active.year, active.month)
+        cur_hl = "\033[1;7;32m" if color else ""  # 绿色加粗反色
         if recent:
             rows = [_usage_row(r, credit_limit, ppc, prec, r["date"][4:].replace("-", "")) for r in recent]
             hl = {}
@@ -647,10 +655,19 @@ def format_output(config: dict, detail: dict, usage: dict, recent: list[dict] | 
                     hl[(n, 1)] = red
                 elif cost > 10:
                     hl[(n, 1)] = yellow
+            if cur_hl:
+                for n, r in enumerate(recent):
+                    if r["date"] == cur_day:
+                        hl[(n, 0)] = cur_hl
             tables.append((cyan, header, rows, hl))
         if monthly:
             rows = [_usage_row(r, credit_limit, ppc, prec, f"{r['year'] % 100:02d}{r['month']:02d}") for r in monthly]
-            tables.append((magenta, ["Monthly", *header[1:]], rows, {}))
+            hl = {}
+            if cur_hl:
+                for n, r in enumerate(monthly):
+                    if (r["year"], r["month"]) == cur_month:
+                        hl[(n, 0)] = cur_hl
+            tables.append((magenta, ["Monthly", *header[1:]], rows, hl))
         if tables:
             w = [0] * 8
             for _, header, rows, _ in tables:
@@ -733,10 +750,33 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
     else:
         parts.append(f"Crt:{month_percent:.3f}%")
 
-    # 最近 N 天每日消耗（按 config 截取，完整列表供多行输出固定 30 天）
-    if recent:
+    # 当天消耗摘要 Con：与 Dai 首条同源（recent[0]），首值同 Dai 走 value_format
+    light_blue = "#8c8cff"
+    if recent and disp.get("show_con", True):
+        cur = recent[0]
+        hit, miss = cur["inputHitToken"], cur["inputMissToken"]
+        rat_pct = miss / hit * 100 if hit else 0
+        rat = f"{rat_pct:.{prec}f}%"
+        val = _format_value(cur["credits"], month_limit, ppc, fmt_mode, prec)
+        hit_s = format_tokens(hit)
+        if color:
+            # 与 Daily MisRate 同阈值：>10 红，>5 黄
+            rat_fg = "#ff0000" if rat_pct > 10 else ("#ffff00" if rat_pct > 5 else gray)
+            # 首值与 Daily Cost 同阈值（按金额）：>20 红，>10 黄
+            cost = cur["credits"] * ppc
+            val_fg = "#ff0000" if cost > 20 else ("#ffff00" if cost > 10 else "default")
+            key = _tmux_colorize("Con", f"{light_blue}", bold=True)
+            inner = (f"#[fg={val_fg}]{val} "
+                     f"#[fg={light_blue}]Hit#[fg={gray}]:{hit_s}#[fg=default] "
+                     f"#[fg={light_blue}]Mis#[fg={gray}]:#[fg={rat_fg}]{rat}")
+            parts.append(f"{key}#[fg={gray}]#[nobold][{inner}#[fg={gray}]#[nobold]]#[fg=default]")
+        else:
+            parts.append(f"Con[{val} Hit:{hit_s} Mis:{rat}]")
+
+    # 最近 N 天每日消耗（按 config 截取，完整列表供多行输出固定 30 天；N=0 不显示）
+    if rec := recent[:disp.get("recent_days", 3)]:
         rec_parts = []
-        for r in recent[:disp.get("recent_days", 3)]:
+        for r in rec:
             date_short = r["date"][8:].replace("-", "")     # DD
             val = _format_value(r["credits"], month_limit, ppc, fmt_mode, prec)
             if color:
@@ -750,10 +790,10 @@ def format_tmux(config: dict, detail: dict, usage: dict, recent: list[dict] | No
         else:
             parts.append("Dai[" + " ".join(rec_parts) + "]")
 
-    # 最近 N 个月月度消耗（按 config 截取，完整列表供多行输出固定 6 个月）
-    if monthly:
+    # 最近 N 个月月度消耗（按 config 截取，完整列表供多行输出固定 6 个月；N=0 不显示）
+    if mon := monthly[:disp.get("recent_months", 2)]:
         mon_parts = []
-        for r in monthly[:disp.get("recent_months", 2)]:
+        for r in mon:
             month_label = f"{r['month']:02d}"
             val = _format_value(r["credits"], month_limit, ppc, fmt_mode, prec)
             if color:
