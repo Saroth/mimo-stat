@@ -10,12 +10,14 @@ API 端点:
 """
 
 import argparse
+import hashlib
+import hmac
 import json
 import sys
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import yaml
 
@@ -282,11 +284,55 @@ def flatten_day(models: dict, date_str: str) -> dict:
     return total
 
 
-def api_get(config: dict, path: str) -> dict:
-    """发送 GET 请求到 MiMo API。"""
+# ---- 请求签名（HMAC-SHA256）----
+# 服务端要求 X-Sign / X-Timestamp / X-Key-Epoch 三个请求头，算法与前端一致：
+#   sign = HMAC-SHA256(signKey, "METHOD\npath\nquery\nbodyHash\ntimestamp")
+# sign-key 从 /api/v1/user/sign-key 获取，带过期时间；query 按 key=value 排序拼接。
+
+_SIGN_ERRS = {"SIGN_KEY_MISSING", "SIGN_MISSING", "SIGN_INVALID", "TIMESTAMP_INVALID"}
+_sign_state: dict = {"key": None, "epoch": None, "expires_at": 0.0, "offset": 0.0}
+
+
+def _fetch_sign_key(config: dict) -> bool:
+    """拉取签名密钥并缓存（含服务器时钟偏移）。"""
     import requests
-    url = f"{config['base_url']}/api/v1{path}"
-    headers = {
+    resp = requests.get(
+        f"{config['base_url']}/api/v1/user/sign-key",
+        headers={"Cookie": config["cookie"], "User-Agent": "mimo-stat"},
+        timeout=10,
+    )
+    if not resp.ok:
+        return False
+    st = resp.headers.get("x-server-time")
+    if st:
+        v = float(st)
+        _sign_state["offset"] = (v / 1000 if v > 1e12 else v) - time.time()
+    data = resp.json().get("data") or resp.json()
+    key, epoch = data.get("signKey"), data.get("epoch")
+    if not key or not epoch:
+        return False
+    _sign_state["key"] = key
+    _sign_state["epoch"] = int(epoch)
+    _sign_state["expires_at"] = float(data.get("expiresAt") or epoch + 86400)
+    return True
+
+
+def sign_headers(config: dict, method: str, url: str, body: str = "") -> dict:
+    """构造签名请求头；密钥缺失或过期时自动刷新。"""
+    if not _sign_state["key"] or time.time() + 60 >= _sign_state["expires_at"]:
+        if not _fetch_sign_key(config) or not _sign_state["key"]:
+            return {}
+    parts = urlsplit(url)
+    query = "&".join(sorted(q for q in parts.query.split("&") if q))
+    body_hash = hashlib.sha256(body.encode()).hexdigest() if body else ""
+    ts = str(int(time.time() + _sign_state["offset"]))
+    msg = "\n".join([method.upper(), parts.path, query, body_hash, ts])
+    sign = hmac.new(_sign_state["key"].encode(), msg.encode(), hashlib.sha256).hexdigest()
+    return {"X-Sign": sign, "X-Timestamp": ts, "X-Key-Epoch": str(_sign_state["epoch"])}
+
+
+def _base_headers(config: dict) -> dict:
+    return {
         "Cookie": config["cookie"],
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
@@ -294,7 +340,34 @@ def api_get(config: dict, path: str) -> dict:
         "Referer": config["base_url"] + "/",
         "Origin": config["base_url"],
     }
-    resp = requests.get(url, headers=headers, timeout=10)
+
+
+def _signed_request(config: dict, method: str, url: str, body: str = ""):
+    """发送带签名的请求；遇签名类 403 刷新密钥后重试一次。"""
+    import requests
+    for attempt in (1, 2):
+        headers = _base_headers(config)
+        headers.update(sign_headers(config, method, url, body))
+        if method == "GET":
+            resp = requests.get(url, headers=headers, timeout=10)
+        else:
+            headers["Content-Type"] = "application/json"
+            resp = requests.post(url, headers=headers, data=body, timeout=10)
+        if attempt == 1 and resp.status_code == 403:
+            try:
+                if resp.json().get("code") in _SIGN_ERRS:
+                    _sign_state["key"] = None  # 强制刷新密钥
+                    continue
+            except ValueError:
+                pass
+        return resp
+    return resp
+
+
+def api_get(config: dict, path: str) -> dict:
+    """发送 GET 请求到 MiMo API。"""
+    url = f"{config['base_url']}/api/v1{path}"
+    resp = _signed_request(config, "GET", url)
     # 检查 HTTP 状态码是否为 401
     if resp.status_code == 401:
         raise AuthError("认证失败，请更新 cookie。")
@@ -330,22 +403,14 @@ def get_ph_from_cookie(cookie: str) -> str:
 
 def api_post(config: dict, path: str, data: dict) -> dict:
     """发送 POST 请求到 MiMo API。"""
-    import requests
     ph = get_ph_from_cookie(config["cookie"])
     url = f"{config['base_url']}/api/v1{path}"
     if ph:
         # 对 ph 值进行 URL 编码，特别是 + 号需要编码为 %2B
         url += f"?api-platform_ph={quote(ph, safe='')}"
-    headers = {
-        "Cookie": config["cookie"],
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        "Content-Type": "application/json",
-        "Referer": config["base_url"] + "/",
-        "Origin": config["base_url"],
-    }
-    resp = requests.post(url, headers=headers, json=data, timeout=10)
+    # body 必须与签名时的字符串完全一致，故手动序列化（无空格，同前端 JSON.stringify）
+    body = json.dumps(data, separators=(",", ":"))
+    resp = _signed_request(config, "POST", url, body)
     # 检查 HTTP 状态码是否为 401
     if resp.status_code == 401:
         raise AuthError("认证失败，请更新 cookie。")

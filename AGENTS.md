@@ -55,6 +55,19 @@ Cookie 获取方式：
 
 POST 请求需要从 cookie 中提取 `api-platform_ph`，作为 URL 查询参数附加，并进行 URL 编码（特别是 `+` → `%2B`）。详见 `get_ph_from_cookie()` 和 `api_post()`。
 
+### 请求签名（2026-11 起强制）
+
+所有 API 请求需带 `X-Sign` / `X-Timestamp` / `X-Key-Epoch` 三个头，否则 403 `SIGN_MISSING`：
+
+- 密钥从 `GET /api/v1/user/sign-key` 获取（无需签名），含 `signKey` / `epoch` / `expiresAt`，进程内缓存、过期前 60s 刷新
+- `sign = HMAC-SHA256(signKey, "METHOD\npath\nquery\nbodyHash\ntimestamp")`，hex 小写
+- query 只含 `&` 分隔的 `key=value` 按字典序排序；body 空则 bodyHash 为空串，否则 SHA256 hex
+- POST body 必须与签名时字符串一致：`json.dumps(data, separators=(",", ":"))`
+- 时间戳用服务器 `x-server-time` 头校正的本地时间（秒）
+- 遇 403 且 code 属于 `SIGN_*` / `TIMESTAMP_INVALID` 时自动刷新密钥重试一次（`_signed_request()`）
+
+实现见 `sign_headers()` / `_fetch_sign_key()` / `_signed_request()`。
+
 ## 缓存行为
 
 - `load_cache()` 对于缓存的认证失败返回 `{"error": msg}` — 调用方需检查 `if "error" in cached`
